@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+
+const { exec } = require("child_process");
+
+function createSize() {
+  return { __proto__: null, name: 0, component: 0, arch: 0 };
+}
+
+const sizes = { __proto__: null };
+function saveSize(item) {
+  const size = (sizes[item.repository] =
+    sizes[item.repository] || createSize());
+  for (const key in size) {
+    if (typeof item[key] === "string") {
+      size[key] = item[key].length > size[key] ? item[key].length : size[key];
+    }
+  }
+}
+
+function createItem() {
+  return {
+    __proto__: null,
+    name: "",
+    repository: "",
+    component: "",
+    arch: "",
+    installed: "",
+    candidate: null
+  };
+}
+
+let curr;
+let total = 0;
+let nextRepoLine = false;
+const repositories = { __proto__: null };
+
+function handleLine(rawLine) {
+  const line = rawLine.trim();
+  if (!line) {
+    // do nothing
+  } else if (nextRepoLine) {
+    nextRepoLine = false;
+
+    const split = line.split(" ");
+    curr.repository = split[1];
+    curr.component = split[2] || null;
+    curr.arch = split[3] || null;
+
+    const repoName = curr.repository;
+    const repo = (repositories[repoName] = repositories[repoName] || []);
+    repo.push(curr);
+    saveSize(curr);
+    total++;
+  } else if (!rawLine.startsWith(" ") && rawLine.endsWith(":")) {
+    curr = createItem();
+    curr.name = line.slice(0, -1);
+  } else if (line.startsWith("Installed:")) {
+    curr.installed = line.split(": ")[1];
+  } else if (line.startsWith("Candidate:")) {
+    const candidate = line.split(": ")[1];
+    if (candidate !== curr.installed) {
+      curr.candidate = candidate;
+    }
+  } else if (line.startsWith("***")) {
+    nextRepoLine = true;
+  }
+}
+
+function handleChunk(chunk) {
+  const data = chunk.toString();
+  for (const line of data.split("\n")) {
+    handleLine(line);
+  }
+}
+
+function handleClose(code) {
+  if (code !== null) {
+    process.exitCode = code;
+  }
+
+  let logged = false;
+  const columns = ["name", "component", "arch", "installed", "candidate"];
+
+  const entries = Object.entries(repositories).sort((a, b) => {
+    const result = a[1].length - b[1].length;
+    return result === 0 ? a[0].localeCompare(b[0]) : result;
+  });
+
+  for (const [repository, items] of entries) {
+    if (logged) {
+      console.log();
+    }
+    logged = true;
+
+    console.log("%s (%s of %s)", repository, items.length, total);
+    for (const item of items) {
+      const values = [];
+      const size = sizes[item.repository];
+      for (const column of columns) {
+        const value = item[column];
+        if (typeof value !== "string") {
+          continue;
+        } else if (column === "candidate" && value) {
+          values.push("->");
+        }
+        const length = size[column];
+        values.push(length ? value.padEnd(length + 1, " ") : value);
+      }
+      console.log(" ", ...values);
+    }
+  }
+}
+
+if (!process.stdin.isTTY) {
+  process.stdin
+    .on("data", handleChunk)
+    .on("close", (hadError) => handleClose(+hadError));
+} else {
+  const cmd = exec("apt policy $(dpkg -l | awk 'NR >= 6 { print $2 }')");
+  cmd.stdout.on("data", handleChunk);
+  cmd.stderr.pipe(process.stderr);
+  cmd.on("close", handleClose);
+}
