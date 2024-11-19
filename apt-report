@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-const { exec } = require("child_process");
-
 function createSize() {
   return { __proto__: null, name: 0, component: 0, arch: 0 };
 }
@@ -124,8 +122,10 @@ if (!process.stdin.isTTY) {
     .on("data", handleChunk)
     .on("close", (hadError) => handleClose(+hadError));
 } else {
-  const cmd = exec("apt policy $(dpkg -l | awk 'NR >= 6 { print $2 }')");
-  cmd.stdout.on("data", handleChunk);
-  cmd.stderr.pipe(process.stderr);
-  cmd.on("close", handleClose);
+  const { spawn } = require("child_process");
+  const cmd = "apt policy $(dpkg -l | awk 'NR >= 6 { print $2 }')";
+  const child = spawn(cmd, { shell: true });
+  child.stdout.on("data", handleChunk);
+  child.stderr.pipe(process.stderr);
+  child.on("close", handleClose);
 }
