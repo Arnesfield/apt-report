@@ -29,6 +29,14 @@ function createItem() {
   };
 }
 
+function saveItem(item) {
+  const repoName = item.repository;
+  const repo = (repositories[repoName] = repositories[repoName] || []);
+  repo.push(item);
+  saveSize(item);
+  total++;
+}
+
 let curr;
 let total = 0;
 let nextRepoLine = false;
@@ -45,13 +53,13 @@ function handleLine(rawLine) {
     curr.repository = split[1];
     curr.component = split[2] || null;
     curr.arch = split[3] || null;
-
-    const repoName = curr.repository;
-    const repo = (repositories[repoName] = repositories[repoName] || []);
-    repo.push(curr);
-    saveSize(curr);
-    total++;
+    saveItem(curr);
   } else if (!rawLine.startsWith(" ") && rawLine.endsWith(":")) {
+    // save existing if not yet in repo
+    if (curr && !curr.repository) {
+      curr.repository = "(none)";
+      saveItem(curr);
+    }
     curr = createItem();
     curr.name = line.slice(0, -1);
   } else if (line.startsWith("Installed:")) {
